@@ -1,0 +1,65 @@
+version: '3'
+
+services:
+  mariadb:
+    container_name: mariadb
+    restart: unless-stopped
+    env_file: ./.env
+    build:
+      context: requirements/mariadb
+    networks:
+      - container_odyssey_network
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb:/var/lib/mysql
+
+  wordpress:
+    container_name: wordpress
+    restart: on-failure
+    env_file: ./.env
+    build: 
+      context: requirements/wordpress
+    networks:
+      - container_odyssey_network
+    ports:
+      - "9000:9000"
+    volumes:
+    - wordpress:/var/www/wordpress
+    depends_on:
+      - mariadb
+    entrypoint: ./usr/local/bin/configure-wordpress.sh
+
+  nginx:
+    container_name: nginx
+    restart: on-failure
+    env_file: ./.env
+    build: 
+      context: requirements/nginx
+    networks:
+      - container_odyssey_network
+    ports:
+      - "443:443"
+    volumes:
+      - wordpress:/var/www/wordpress
+    depends_on:
+      - wordpress
+
+volumes:
+  wordpress:
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/home/mboiguille/data/wordpress'
+
+  mariadb:
+    driver: local
+    driver_opts:
+      type: 'none' 
+      o: 'bind'
+      device: '/home/mboiguille/data/mariadb'
+
+networks:
+  container_odyssey_network:
+    driver: bridge
