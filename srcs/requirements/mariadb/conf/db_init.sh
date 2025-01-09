@@ -1,32 +1,40 @@
 #!/bin/bash
+set -e
 
-service mysql start
+wait_for_mysqld() {
+	echo "Attente du demarrage de MariaDB"
+	until mysqladmin ping --silent; do
+		sleep 1
+	done
+}
 
-while ! mysqladmin ping -h "localhost" -u "root" -p"$SQL_PASS" --silent; do
-	echo "Attente du démarrage de MariaDB..."
-	sleep 1
-done
-
-if ! mysql -u "root" -p"$SQL_PASS" -h "localhost" -e "USE $SQL_DB;" &>/dev/null; then
-	echo "initialisation de la db"
-	cat <<EOF >/tmp/init_db.sql
-DELETE FROM mysql.user WHERE User = '';
-DROP DATABASE IF EXISTS test;
-CREATE DATABASE $SQL_DB;
-CREATE USER IF NOT EXISTS '$SQL_USER'@'%' IDENTIFIED BY '$SQL_PASS';
-GRANT ALL PRIVILEGES ON $SQL_DB.* TO '$SQL_USER'@'%' IDENTIFIED BY '$SQL_PASS';
-GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' IDENTIFIED BY '$SQL_RPASS';
-FLUSH PRIVILEGES;
-EOF
-
-	if [ -f /tmp/init_db.sql ]; then
-		mysqld --init-file=/tmp/init_db.sql &
-		service mysql restart
-	fi
-
+if [ -d "/var/lib/mysql/${SQL_DB}" ]; then
+	echo "'${SQL_DB}' existante, pas d'init."
 else
-	echo "db existante"
+	echo "Init db '${SQL_DB}'..."
+
+	mysqld --skip-networking --socket=/var/run/mysqld/mysqld.sock &
+	sleep 2
+
+	wait_for_mysqld
+
+	mysql -u root <<-EOSQL
+		DELETE FROM mysql.user WHERE User = '';
+		DROP DATABASE IF EXISTS test;
+
+		CREATE DATABASE IF NOT EXISTS \`${SQL_DB}\`;
+		CREATE USER IF NOT EXISTS '${SQL_USER}'@'%' IDENTIFIED BY '${SQL_PASS}';
+		GRANT ALL PRIVILEGES ON \`${SQL_DB}\`.* TO '${SQL_USER}'@'%';
+
+		-- Definir mdp root
+		ALTER USER 'root'@'localhost' IDENTIFIED BY '${SQL_RPASS}';
+
+		FLUSH PRIVILEGES;
+	EOSQL
+
+	echo "Arret du mysqld temporaire..."
+	mysqladmin -u root --password="${SQL_RPASS}" shutdown || true
 fi
 
-rm -f /tmp/init_db.sql
-exec mysqld
+echo "Demarrage definitif de MariaDB..."
+exec "$@"
